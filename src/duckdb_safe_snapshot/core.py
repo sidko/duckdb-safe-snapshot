@@ -60,6 +60,7 @@ class Config:
     wal_artifact_name: str
     metadata: Mapping[str, Any] | None = None
     release: str | Callable[[], str | None] | None = None
+    inherited_lock_fd: int | None = None
 
     def __post_init__(self) -> None:
         paths = {
@@ -101,6 +102,10 @@ class Config:
                 raise ValueError("metadata must be JSON serializable") from exc
         if self.release is not None and not isinstance(self.release, str) and not callable(self.release):
             raise ValueError("release must be a string, callback, or None")
+        if self.inherited_lock_fd is not None and (
+            not isinstance(self.inherited_lock_fd, int) or self.inherited_lock_fd < 0
+        ):
+            raise ValueError("inherited_lock_fd must be a non-negative descriptor or None")
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -164,6 +169,17 @@ def validate_lock(path: Path, cfg: Config) -> None:
 def writer_lock(cfg: Config, timeout_seconds: float) -> Iterator[None]:
     """Take the same advisory lock every participating writer uses."""
     validate_lock(cfg.lock_path, cfg)
+    if cfg.inherited_lock_fd is not None:
+        try:
+            inherited = os.fstat(cfg.inherited_lock_fd)
+            configured = os.stat(cfg.lock_path, follow_symlinks=False)
+            if (inherited.st_dev, inherited.st_ino) != (configured.st_dev, configured.st_ino):
+                fail("inherited lock descriptor does not match the shared writer lock")
+            fcntl.flock(cfg.inherited_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise SnapshotError("inherited lock descriptor is invalid or unavailable") from exc
+        yield
+        return
     descriptor = os.open(cfg.lock_path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         deadline = time.monotonic() + timeout_seconds
