@@ -6,7 +6,7 @@ participating writer acquires before modifying either source file.
 
 Install a pinned release with `python -m pip install duckdb-safe-snapshot==0.1.0`.
 Add it to the consumer's Python dependency file and lockfile, then configure an
-explicit `Config` with absolute source, lock, backup, and state paths plus
+explicit `Config` with absolute database, WAL, lock, backup, and state paths plus
 source/lock/snapshot owner UIDs and database/WAL artifact names. Application
 scheduling, service ordering, ACL setup, backup retention policy, and recovery
 remain consumer-owned policy.

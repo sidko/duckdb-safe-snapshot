@@ -5,15 +5,12 @@ import json
 import os
 import shutil
 import stat
-import sys
 import threading
 import time
 from pathlib import Path
 
 import duckdb
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from duckdb_safe_snapshot import Config, SnapshotError, create_snapshot, verify_latest, verify_snapshot
 
@@ -33,6 +30,7 @@ def make_config(tmp_path: Path) -> Config:
     uid = os.geteuid()
     return Config(
         database_path=database,
+        wal_path=root / "database" / "demo.duckdb.wal",
         lock_path=lock,
         backup_root=root / "snapshots",
         state_root=root / "state",
@@ -154,6 +152,43 @@ def test_rejects_unsafe_source_link_and_snapshot_link(tmp_path: Path) -> None:
         verify_snapshot(cfg, str(created["snapshot_id"]))
 
 
+@pytest.mark.parametrize("unsafe", ["group_writable", "hardlinked", "wrong_owner_policy"])
+def test_rejects_unsafe_source_modes_links_and_owner_policy(tmp_path: Path, unsafe: str) -> None:
+    cfg = make_config(tmp_path)
+    if unsafe == "group_writable":
+        cfg.database_path.chmod(0o660)
+    elif unsafe == "hardlinked":
+        os.link(cfg.database_path, cfg.database_path.with_name("second-link"))
+    else:
+        cfg = Config(**{**cfg.__dict__, "source_owner_uid": os.geteuid() + 1})
+    with pytest.raises(SnapshotError, match="unsafe snapshot source"):
+        create_snapshot(cfg)
+
+
+def test_rejects_hardlinked_artifact_and_source_mutation_during_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_config(tmp_path)
+    created = create_snapshot(cfg)
+    artifact = snapshot_dir(cfg, created) / "database.duckdb"
+    os.link(artifact, artifact.with_name("artifact-link"))
+    with pytest.raises(SnapshotError, match="unsafe or mismatched"):
+        verify_snapshot(cfg, str(created["snapshot_id"]))
+
+    cfg = make_config(tmp_path / "mutation")
+    import duckdb_safe_snapshot.core as core
+
+    original_copy = core.copy_and_hash
+
+    def copy_then_mutate(source: Path, destination: Path) -> dict[str, object]:
+        copied = original_copy(source, destination)
+        if source == cfg.database_path:
+            source.write_bytes(b"changed-after-copy")
+        return copied
+
+    monkeypatch.setattr(core, "copy_and_hash", copy_then_mutate)
+    with pytest.raises(SnapshotError, match="DuckDB changed"):
+        create_snapshot(cfg)
+
+
 def test_config_rejects_output_aliases_and_non_explicit_names(tmp_path: Path) -> None:
     cfg = make_config(tmp_path)
     with pytest.raises(ValueError, match="must not alias"):
@@ -162,6 +197,65 @@ def test_config_rejects_output_aliases_and_non_explicit_names(tmp_path: Path) ->
         Config(**{**cfg.__dict__, "database_path": cfg.backup_root / "database.duckdb"})
     with pytest.raises(ValueError, match="simple, distinct"):
         Config(**{**cfg.__dict__, "database_artifact_name": "nested/database.duckdb"})
+    with pytest.raises(ValueError, match="must not alias"):
+        Config(**{**cfg.__dict__, "wal_path": cfg.lock_path})
+    lexical_lock_alias = cfg.lock_path.parent / ".." / "locks" / cfg.lock_path.name
+    with pytest.raises(ValueError, match="must not alias"):
+        Config(**{**cfg.__dict__, "wal_path": lexical_lock_alias})
+
+
+def test_captures_optional_generic_release_inside_snapshot_manifest(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    calls: list[str] = []
+
+    def release() -> str:
+        calls.append("called")
+        return "synthetic-release-42"
+
+    cfg = Config(**{**cfg.__dict__, "release": release})
+    created = create_snapshot(cfg)
+    manifest = json.loads((snapshot_dir(cfg, created) / "manifest.json").read_text())
+    assert calls == ["called"]
+    assert manifest["release"] == "synthetic-release-42"
+    assert verify_snapshot(cfg, str(created["snapshot_id"]))["release"] == "synthetic-release-42"
+
+
+def test_rejects_invalid_retention_and_nonfinite_timeout_before_creating_output(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    cfg.backup_root.rmdir()
+    with pytest.raises(SnapshotError, match="keep must"):
+        create_snapshot(cfg, keep=0)
+    assert not cfg.backup_root.exists()
+    with pytest.raises(SnapshotError, match="lock timeout"):
+        create_snapshot(cfg, timeout_seconds=float("nan"))
+    assert not cfg.backup_root.exists()
+
+
+def test_two_snapshots_serialize_latest_state_and_retention(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    start = threading.Barrier(3)
+    results: list[dict[str, object]] = []
+    errors: list[BaseException] = []
+
+    def snapshotter() -> None:
+        try:
+            start.wait(timeout=1)
+            results.append(create_snapshot(cfg, keep=1, timeout_seconds=1))
+        except BaseException as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=snapshotter)
+    second = threading.Thread(target=snapshotter)
+    first.start()
+    second.start()
+    start.wait(timeout=1)
+    first.join(timeout=2)
+    second.join(timeout=2)
+    assert not errors
+    assert len(results) == 2
+    complete = [path for path in cfg.backup_root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    assert len(complete) == 1
+    assert verify_latest(cfg)["snapshot_id"] == complete[0].name
 
 
 def test_completed_set_is_private_and_atomic(tmp_path: Path) -> None:

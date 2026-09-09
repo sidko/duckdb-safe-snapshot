@@ -13,6 +13,7 @@ from .core import Config, SnapshotError, create_snapshot, verify_latest, verify_
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create and verify lock-coordinated DuckDB snapshot sets.")
     parser.add_argument("--database", type=Path, required=True, help="absolute live DuckDB database path")
+    parser.add_argument("--wal", type=Path, required=True, help="absolute live DuckDB WAL path (it may be absent)")
     parser.add_argument("--lock", type=Path, required=True, help="absolute shared participating-writer lock path")
     parser.add_argument("--backup-root", type=Path, required=True, help="absolute private snapshot directory")
     parser.add_argument("--state-root", type=Path, required=True, help="absolute private state directory")
@@ -20,8 +21,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lock-owner-uid", type=int, required=True)
     parser.add_argument("--snapshot-owner-uid", type=int, required=True)
     parser.add_argument("--database-artifact", required=True, help="database filename inside a snapshot")
-    parser.add_argument("--wal-artifact", required=True, help="WAL source and filename inside a snapshot")
+    parser.add_argument("--wal-artifact", required=True, help="WAL filename inside a snapshot")
     parser.add_argument("--metadata-json", help="optional JSON object recorded in each manifest")
+    parser.add_argument("--release", help="optional caller-owned release identifier recorded in each manifest")
     subcommands = parser.add_subparsers(dest="command", required=True)
     snapshot_parser = subcommands.add_parser("snapshot")
     snapshot_parser.add_argument("--keep", type=int, default=4)
@@ -42,6 +44,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
             raise SnapshotError("metadata JSON must be an object")
     return Config(
         database_path=args.database,
+        wal_path=args.wal,
         lock_path=args.lock,
         backup_root=args.backup_root,
         state_root=args.state_root,
@@ -51,6 +54,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         database_artifact_name=args.database_artifact,
         wal_artifact_name=args.wal_artifact,
         metadata=metadata,
+        release=args.release,
     )
 
 

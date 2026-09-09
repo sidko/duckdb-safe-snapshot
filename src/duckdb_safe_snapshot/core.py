@@ -9,6 +9,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -18,7 +19,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, NoReturn, Mapping
+from typing import Any, Callable, Iterator, NoReturn, Mapping
 
 
 SNAPSHOT_RE = re.compile(r"^[0-9]{8}T[0-9]{6}\.[0-9]{6}Z$")
@@ -48,6 +49,7 @@ class Config:
     """
 
     database_path: Path
+    wal_path: Path
     lock_path: Path
     backup_root: Path
     state_root: Path
@@ -57,23 +59,25 @@ class Config:
     database_artifact_name: str
     wal_artifact_name: str
     metadata: Mapping[str, Any] | None = None
+    release: str | Callable[[], str | None] | None = None
 
     def __post_init__(self) -> None:
         paths = {
             "database_path": Path(self.database_path),
+            "wal_path": Path(self.wal_path),
             "lock_path": Path(self.lock_path),
             "backup_root": Path(self.backup_root),
             "state_root": Path(self.state_root),
         }
         if any(not value.is_absolute() for value in paths.values()):
             raise ValueError("snapshot paths must be absolute")
-        normalized = {name: value.absolute() for name, value in paths.items()}
+        normalized = {name: value.resolve(strict=False) for name, value in paths.items()}
         if len(set(normalized.values())) != len(normalized):
             raise ValueError("snapshot paths must not alias each other")
         for name, value in normalized.items():
             object.__setattr__(self, name, value)
         roots = (normalized["backup_root"], normalized["state_root"])
-        for name in ("database_path", "lock_path"):
+        for name in ("database_path", "wal_path", "lock_path"):
             path = normalized[name]
             if any(_is_within(path, root) for root in roots):
                 raise ValueError(f"{name} must not be inside a private output root")
@@ -94,6 +98,8 @@ class Config:
                 json.dumps(self.metadata, sort_keys=True)
             except (TypeError, ValueError) as exc:
                 raise ValueError("metadata must be JSON serializable") from exc
+        if self.release is not None and not isinstance(self.release, str) and not callable(self.release):
+            raise ValueError("release must be a string, callback, or None")
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -274,7 +280,9 @@ def prune_snapshots(cfg: Config, keep: int) -> list[str]:
 
 def create_snapshot(cfg: Config, *, keep: int = 4, timeout_seconds: float = 1800.0) -> dict[str, object]:
     """Create, verify, record, and retain an atomic snapshot set."""
-    if timeout_seconds < 0 or timeout_seconds > 3600:
+    if keep < 1 or keep > MAX_KEEP:
+        fail(f"keep must be between 1 and {MAX_KEEP}")
+    if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds < 0 or timeout_seconds > 3600:
         fail("lock timeout must be between 0 and 3600 seconds")
     validate_private_directory(cfg.backup_root, cfg, create=True)
     validate_private_directory(cfg.state_root, cfg, create=True)
@@ -286,16 +294,15 @@ def create_snapshot(cfg: Config, *, keep: int = 4, timeout_seconds: float = 1800
 
     with writer_lock(cfg, timeout_seconds):
         database_before = source_state(cfg.database_path, cfg, required=True)
-        wal_path = cfg.database_path.with_name(cfg.wal_artifact_name)
-        wal_before = source_state(wal_path, cfg, required=False)
+        wal_before = source_state(cfg.wal_path, cfg, required=False)
         temporary.mkdir(mode=0o700)
         try:
             artifacts = [copy_and_hash(cfg.database_path, temporary / cfg.database_artifact_name)]
             if wal_before is not None:
-                artifacts.append(copy_and_hash(wal_path, temporary / cfg.wal_artifact_name))
+                artifacts.append(copy_and_hash(cfg.wal_path, temporary / cfg.wal_artifact_name))
             if source_state(cfg.database_path, cfg, required=True) != database_before:
                 fail("DuckDB changed while the shared writer lock was held")
-            if source_state(wal_path, cfg, required=False) != wal_before:
+            if source_state(cfg.wal_path, cfg, required=False) != wal_before:
                 fail("DuckDB WAL changed while the shared writer lock was held")
             manifest: dict[str, object] = {
                 "schema": 1, "snapshot_id": snapshot_id,
@@ -304,6 +311,11 @@ def create_snapshot(cfg: Config, *, keep: int = 4, timeout_seconds: float = 1800
             }
             if cfg.metadata is not None:
                 manifest["metadata"] = dict(cfg.metadata)
+            release = cfg.release() if callable(cfg.release) else cfg.release
+            if release is not None:
+                if not isinstance(release, str):
+                    fail("release callback must return a string or None")
+                manifest["release"] = release
             encoded_manifest = canonical_json(manifest)
             manifest_digest = hashlib.sha256(encoded_manifest).hexdigest()
             write_bytes(temporary / MANIFEST_NAME, encoded_manifest)
@@ -311,10 +323,14 @@ def create_snapshot(cfg: Config, *, keep: int = 4, timeout_seconds: float = 1800
             fsync_directory(temporary)
             os.replace(temporary, final)
             fsync_directory(cfg.backup_root)
+            return finalize_snapshot(cfg, snapshot_id, keep)
         except BaseException:
             shutil.rmtree(temporary, ignore_errors=True)
             raise
 
+
+def finalize_snapshot(cfg: Config, snapshot_id: str, keep: int) -> dict[str, object]:
+    """Verify and publish state while the participating-writer lock is still held."""
     verified = verify_snapshot(cfg, snapshot_id)
     state = {"schema": 1, "snapshot_id": snapshot_id, "manifest_sha256": verified["manifest_sha256"], "verified_at": datetime.now(timezone.utc).isoformat()}
     state_path = cfg.state_root / "latest.json"
@@ -405,7 +421,7 @@ def verify_snapshot(cfg: Config, snapshot_id: str) -> dict[str, object]:
     actual_entries = {entry.name for entry in snapshot.iterdir()}
     if actual_entries != expected_entries:
         fail(f"unexpected snapshot entries: {sorted(actual_entries - expected_entries)}")
-    return {"status": "verified", "snapshot_id": snapshot_id, "manifest_sha256": manifest_digest, "metadata": payload.get("metadata"), "artifacts": verified}
+    return {"status": "verified", "snapshot_id": snapshot_id, "manifest_sha256": manifest_digest, "release": payload.get("release"), "metadata": payload.get("metadata"), "artifacts": verified}
 
 
 def latest_snapshot_state(cfg: Config) -> tuple[str, str]:
