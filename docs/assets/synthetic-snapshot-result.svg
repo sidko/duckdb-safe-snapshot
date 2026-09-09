@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="230" viewBox="0 0 840 230" role="img" aria-label="Synthetic successful DuckDB snapshot command">
+  <rect width="840" height="230" rx="14" fill="#101722"/>
+  <circle cx="34" cy="30" r="8" fill="#ff6b6b"/><circle cx="58" cy="30" r="8" fill="#ffd166"/><circle cx="82" cy="30" r="8" fill="#06d6a0"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17">
+    <text x="28" y="76" fill="#9cdcfe">$ duckdb-safe-snapshot … snapshot --keep 7</text>
+    <text x="28" y="116" fill="#b5cea8">{"artifacts":[{"name":"database.duckdb","size":53248}],</text>
+    <text x="28" y="145" fill="#b5cea8"> "snapshot_id":"20260909T010203.000000Z","status":"created"}</text>
+    <text x="28" y="192" fill="#9cdcfe">$ duckdb-safe-snapshot … verify latest</text>
+    <text x="585" y="192" fill="#4ec9b0">"status":"verified"</text>
+  </g>
+</svg>
