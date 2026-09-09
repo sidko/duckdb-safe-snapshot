@@ -67,6 +67,11 @@ aliases, output-root nesting, and
 database/lock paths inside private output roots. It also requires all three
 owner UIDs and simple, distinct database/WAL artifact names. The caller must
 create the shared lock under an ownership/mode policy accepted by `Config`.
+For a service launcher that acquires this lock before selecting application
+code, `inherited_lock_fd` may carry that open descriptor into `create_snapshot`.
+It must be a non-negative integer descriptor for the exact configured lock;
+the package validates its inode and reuses it without closing or unlocking it,
+so the launcher retains the lock for the full child-process lifetime.
 
 This is intentionally not a restore tool, service manager, or scheduler. Its
 file checks protect leaf files and configured private roots; callers must also
