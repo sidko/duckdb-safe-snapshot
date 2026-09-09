@@ -4,7 +4,10 @@ Create private, checksummed snapshot sets of a DuckDB database and its WAL while
 cooperating writers share one external file lock. It is a small Linux library
 and CLI for applications that own their own scheduling and recovery process.
 
-![Synthetic snapshot demo](docs/assets/synthetic-snapshot-result.svg)
+![Illustrative synthetic snapshot terminal transcript](docs/assets/synthetic-snapshot-result.svg)
+
+The image is an illustrative static terminal transcript with synthetic values;
+it is not captured output from a snapshot run.
 
 ```bash
 python -m pip install duckdb-safe-snapshot==0.1.0
