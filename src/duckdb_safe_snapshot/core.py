@@ -318,10 +318,9 @@ def create_snapshot(cfg: Config, *, keep: int = 4, timeout_seconds: float = 1800
             if cfg.metadata is not None:
                 manifest["metadata"] = dict(cfg.metadata)
             release = cfg.release() if callable(cfg.release) else cfg.release
-            if release is not None:
-                if not isinstance(release, str):
-                    fail("release callback must return a string or None")
-                manifest["release"] = release
+            if release is not None and not isinstance(release, str):
+                fail("release callback must return a string or None")
+            manifest["release"] = release
             encoded_manifest = canonical_json(manifest)
             manifest_digest = hashlib.sha256(encoded_manifest).hexdigest()
             write_bytes(temporary / MANIFEST_NAME, encoded_manifest)

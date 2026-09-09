@@ -106,10 +106,10 @@ test. DuckDB is not a runtime dependency because this package copies files; it
 is a test dependency only. No compatibility promise is made for other DuckDB,
 Python, operating-system, or filesystem versions until they are tested.
 
-An application can pass `release` as a string or no-argument callback. The
-resulting optional string is recorded as the manifest's top-level `release`
+An application can pass `release` as a string or no-argument callback. Its
+result (a string or `null`) is recorded as the manifest's top-level `release`
 field while the writer lock is held. Release meaning and validation stay with
-the application; existing schema-1 manifests without that optional field remain
+the application; existing schema-1 manifests without that field remain
 verifiable.
 
 This project was extracted from a private application maintained by
