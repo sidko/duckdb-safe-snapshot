@@ -103,7 +103,9 @@ class Config:
         if self.release is not None and not isinstance(self.release, str) and not callable(self.release):
             raise ValueError("release must be a string, callback, or None")
         if self.inherited_lock_fd is not None and (
-            not isinstance(self.inherited_lock_fd, int) or self.inherited_lock_fd < 0
+            isinstance(self.inherited_lock_fd, bool)
+            or not isinstance(self.inherited_lock_fd, int)
+            or self.inherited_lock_fd < 0
         ):
             raise ValueError("inherited_lock_fd must be a non-negative descriptor or None")
 
@@ -167,7 +169,11 @@ def validate_lock(path: Path, cfg: Config) -> None:
 
 @contextmanager
 def writer_lock(cfg: Config, timeout_seconds: float) -> Iterator[None]:
-    """Take the same advisory lock every participating writer uses."""
+    """Take the same advisory lock every participating writer uses.
+
+    A supplied inherited descriptor remains owned and unlocked by the caller;
+    this function validates and reuses its held open-file description.
+    """
     validate_lock(cfg.lock_path, cfg)
     if cfg.inherited_lock_fd is not None:
         try:
