@@ -71,18 +71,19 @@ class Config:
         }
         if any(not value.is_absolute() for value in paths.values()):
             raise ValueError("snapshot paths must be absolute")
-        normalized = {name: value.resolve(strict=False) for name, value in paths.items()}
-        if len(set(normalized.values())) != len(normalized):
+        lexical = {name: Path(os.path.abspath(value)) for name, value in paths.items()}
+        resolved = {name: value.resolve(strict=False) for name, value in lexical.items()}
+        if len(set(resolved.values())) != len(resolved):
             raise ValueError("snapshot paths must not alias each other")
-        for name, value in normalized.items():
+        for name, value in lexical.items():
             object.__setattr__(self, name, value)
-        roots = (normalized["backup_root"], normalized["state_root"])
+        roots = (resolved["backup_root"], resolved["state_root"])
         for name in ("database_path", "wal_path", "lock_path"):
-            path = normalized[name]
+            path = resolved[name]
             if any(_is_within(path, root) for root in roots):
                 raise ValueError(f"{name} must not be inside a private output root")
-        if _is_within(normalized["backup_root"], normalized["state_root"]) or _is_within(
-            normalized["state_root"], normalized["backup_root"]
+        if _is_within(resolved["backup_root"], resolved["state_root"]) or _is_within(
+            resolved["state_root"], resolved["backup_root"]
         ):
             raise ValueError("backup_root and state_root must not contain each other")
         for uid in (self.source_owner_uid, self.lock_owner_uid, self.snapshot_owner_uid):
@@ -265,11 +266,17 @@ def recognized_snapshots(cfg: Config) -> list[Path]:
     return sorted(snapshots, key=lambda value: value.name, reverse=True)
 
 
-def prune_snapshots(cfg: Config, keep: int) -> list[str]:
+def prune_snapshots(cfg: Config, keep: int, *, preserve: str | None = None) -> list[str]:
     if keep < 1 or keep > MAX_KEEP:
         fail(f"keep must be between 1 and {MAX_KEEP}")
     removed: list[str] = []
-    for snapshot in recognized_snapshots(cfg)[keep:]:
+    snapshots = recognized_snapshots(cfg)
+    if preserve is not None:
+        preserved = [snapshot for snapshot in snapshots if snapshot.name == preserve]
+        if len(preserved) != 1:
+            fail(f"completed snapshot is not recognized: {preserve}")
+        snapshots = preserved + [snapshot for snapshot in snapshots if snapshot.name != preserve]
+    for snapshot in snapshots[keep:]:
         verify_snapshot(cfg, snapshot.name)
         shutil.rmtree(snapshot)
         removed.append(snapshot.name)
@@ -286,13 +293,12 @@ def create_snapshot(cfg: Config, *, keep: int = 4, timeout_seconds: float = 1800
         fail("lock timeout must be between 0 and 3600 seconds")
     validate_private_directory(cfg.backup_root, cfg, create=True)
     validate_private_directory(cfg.state_root, cfg, create=True)
-    snapshot_id = snapshot_id_now()
-    final = cfg.backup_root / snapshot_id
-    temporary = cfg.backup_root / f".tmp-{snapshot_id}-{os.getpid()}"
-    if final.exists() or final.is_symlink() or temporary.exists() or temporary.is_symlink():
-        fail(f"snapshot path already exists: {snapshot_id}")
-
     with writer_lock(cfg, timeout_seconds):
+        snapshot_id = snapshot_id_now()
+        final = cfg.backup_root / snapshot_id
+        temporary = cfg.backup_root / f".tmp-{snapshot_id}-{os.getpid()}"
+        if final.exists() or final.is_symlink() or temporary.exists() or temporary.is_symlink():
+            fail(f"snapshot path already exists: {snapshot_id}")
         database_before = source_state(cfg.database_path, cfg, required=True)
         wal_before = source_state(cfg.wal_path, cfg, required=False)
         temporary.mkdir(mode=0o700)
@@ -340,7 +346,7 @@ def finalize_snapshot(cfg: Config, snapshot_id: str, keep: int) -> dict[str, obj
     write_bytes(state_temporary, canonical_json(state))
     os.replace(state_temporary, state_path)
     fsync_directory(cfg.state_root)
-    removed = prune_snapshots(cfg, keep)
+    removed = prune_snapshots(cfg, keep, preserve=snapshot_id)
     return {"status": "created", "snapshot_id": snapshot_id, "manifest_sha256": verified["manifest_sha256"], "artifacts": verified["artifacts"], "pruned": removed}
 
 

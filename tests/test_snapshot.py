@@ -38,7 +38,7 @@ def make_config(tmp_path: Path) -> Config:
         lock_owner_uid=uid,
         snapshot_owner_uid=uid,
         database_artifact_name="database.duckdb",
-        wal_artifact_name="demo.duckdb.wal",
+        wal_artifact_name="snapshot.wal",
         metadata={"application": "synthetic-demo"},
     )
 
@@ -59,11 +59,11 @@ def test_snapshot_copies_real_duckdb_and_wal_that_reopens(tmp_path: Path) -> Non
         connection.close()
 
     created_dir = snapshot_dir(cfg, created)
-    assert {item["name"] for item in created["artifacts"]} == {"database.duckdb", "demo.duckdb.wal"}
+    assert {item["name"] for item in created["artifacts"]} == {"database.duckdb", "snapshot.wal"}
     assert json.loads((created_dir / "manifest.json").read_text())["metadata"] == {"application": "synthetic-demo"}
     recovered = tmp_path / "recovered.duckdb"
     shutil.copyfile(created_dir / "database.duckdb", recovered)
-    shutil.copyfile(created_dir / "demo.duckdb.wal", recovered.with_name("recovered.duckdb.wal"))
+    shutil.copyfile(created_dir / "snapshot.wal", recovered.with_name("recovered.duckdb.wal"))
     restored = duckdb.connect(str(recovered))
     try:
         assert restored.execute("SELECT * FROM probe").fetchall() == [(7, "consistent")]
@@ -137,7 +137,10 @@ def test_verify_rejects_tampered_or_incomplete_sets_and_retention_keeps_unrecogn
 def test_rejects_unsafe_source_link_and_snapshot_link(tmp_path: Path) -> None:
     cfg = make_config(tmp_path)
     cfg.database_path.unlink()
-    cfg.database_path.symlink_to(cfg.lock_path)
+    external_target = cfg.database_path.parent / "external-target"
+    external_target.write_bytes(b"target")
+    external_target.chmod(0o600)
+    cfg.database_path.symlink_to(external_target)
     with pytest.raises(SnapshotError, match="unsafe snapshot source"):
         create_snapshot(cfg)
 
@@ -150,6 +153,29 @@ def test_rejects_unsafe_source_link_and_snapshot_link(tmp_path: Path) -> None:
     target.symlink_to(cfg.lock_path)
     with pytest.raises(SnapshotError, match="unsafe or mismatched"):
         verify_snapshot(cfg, str(created["snapshot_id"]))
+
+
+def test_config_preserves_leaf_symlinks_for_runtime_rejection(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    cfg.database_path.unlink()
+    external_target = cfg.database_path.parent / "external-target-for-config"
+    external_target.write_bytes(b"target")
+    external_target.chmod(0o600)
+    cfg.database_path.symlink_to(external_target)
+    configured = Config(**cfg.__dict__)
+    assert configured.database_path.is_symlink()
+    with pytest.raises(SnapshotError, match="unsafe snapshot source"):
+        create_snapshot(configured)
+
+    cfg = make_config(tmp_path / "output")
+    linked_root = cfg.backup_root.parent / "linked-snapshots"
+    cfg.backup_root.rmdir()
+    target_root = cfg.backup_root.parent / "snapshot-target"
+    target_root.mkdir(mode=0o700)
+    linked_root.symlink_to(target_root)
+    configured = Config(**{**cfg.__dict__, "backup_root": linked_root})
+    with pytest.raises(SnapshotError, match="unsafe private snapshot directory"):
+        create_snapshot(configured)
 
 
 @pytest.mark.parametrize("unsafe", ["group_writable", "hardlinked", "wrong_owner_policy"])
@@ -256,6 +282,20 @@ def test_two_snapshots_serialize_latest_state_and_retention(tmp_path: Path) -> N
     complete = [path for path in cfg.backup_root.iterdir() if path.is_dir() and not path.name.startswith(".")]
     assert len(complete) == 1
     assert verify_latest(cfg)["snapshot_id"] == complete[0].name
+
+
+def test_retention_preserves_the_snapshot_that_published_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_config(tmp_path)
+    ids = iter(["20260909T000002.000000Z", "20260909T000001.000000Z"])
+    import duckdb_safe_snapshot.core as core
+
+    monkeypatch.setattr(core, "snapshot_id_now", lambda: next(ids))
+    first = create_snapshot(cfg, keep=1)
+    second = create_snapshot(cfg, keep=1)
+    complete = [path.name for path in cfg.backup_root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+    assert complete == [str(second["snapshot_id"])]
+    assert verify_latest(cfg)["snapshot_id"] == second["snapshot_id"]
+    assert not snapshot_dir(cfg, first).exists()
 
 
 def test_completed_set_is_private_and_atomic(tmp_path: Path) -> None:
