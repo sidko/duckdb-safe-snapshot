@@ -124,7 +124,7 @@ is best effort from the current release.
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md).
 
-Early commits reconstruct milestones developed in the private Gale Finance
-monorepo. Author dates reflect the original work; public content and hashes were
-rewritten to exclude private details. Some early development used Claude as a
-coding assistant; Sid Kalla selected, reviewed and maintains this code.
+The public history begins with the 2026 extraction work. The private source
+mapping is retained outside this repository because it names Gale-only paths
+and operational context. Some early development used Claude as a coding
+assistant; Sid Kalla selected, reviewed and maintains this code.
