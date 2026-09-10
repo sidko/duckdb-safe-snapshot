@@ -2,7 +2,7 @@ name: Publish to PyPI
 
 on:
   push:
-    tags: ["v*", "retry/v*"]
+    tags: ["v*", "retry/v*/**"]
 
 permissions:
   contents: read
@@ -21,7 +21,7 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == retry/v*/* ]]; then tag="${GITHUB_REF_NAME#retry/}"; tag="${tag%/*}"; else tag="$GITHUB_REF_NAME"; fi
           git fetch origin "refs/tags/$tag:refs/tags/$tag"
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "artifact_sha=$(git rev-list -n 1 "$tag")" >> "$GITHUB_OUTPUT"
+          echo "artifact_sha=$(git rev-list -n 1 "refs/tags/$tag")" >> "$GITHUB_OUTPUT"
   publish:
     needs: resolve
     runs-on: ubuntu-24.04

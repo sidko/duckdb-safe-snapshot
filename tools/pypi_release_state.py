@@ -16,7 +16,7 @@ def remote_files(package, version):
         if error.code == 404: return {}
         raise
     return {item['filename']: normalized_digest(urllib.request.urlopen(item['url']).read(), item['filename']) for item in payload['urls']}
-local = {path.name: normalized_digest(path.read_bytes(), path.name) for path in Path(os.environ['DIST_DIR']).iterdir() if path.suffix in {'.whl', '.gz'}}; mode = os.environ.get('MODE', 'pre')
+local = {path.name: normalized_digest(path.read_bytes(), path.name) for path in Path(os.environ['DIST_DIR']).iterdir() if path.is_file() and (path.name.endswith('.whl') or path.name.endswith('.tar.gz'))}; mode = os.environ.get('MODE', 'pre')
 for attempt in range(3):
     remote = remote_files(os.environ['PYPI_PACKAGE'], os.environ['PYPI_VERSION'].removeprefix('v'))
     if set(remote)-set(local): sys.exit('PyPI has unexpected files for this version')
