@@ -120,9 +120,11 @@ field while the writer lock is held. Release meaning and validation stay with
 the application; existing schema-1 manifests without that field remain
 verifiable.
 
-This project was extracted from a private application maintained by
-[Sid Kalla](https://github.com/sidko). The public package contains synthetic
-tests and generic configuration only. It is Apache-2.0 licensed; that license
+[Gale Finance](https://www.gale.finance/) uses `duckdb-safe-snapshot@0.1.0` in
+its production backup infrastructure. This project was extracted from a private
+application maintained by [Sid Kalla](https://github.com/sidko). The public
+package contains synthetic tests and generic configuration only. It is
+Apache-2.0 licensed; that license
 does not grant rights to Gale Finance names, logos, or visual identity. Support
 is best effort from the current release.
 
