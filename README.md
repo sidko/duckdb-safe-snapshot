@@ -4,10 +4,17 @@ Create private, checksummed snapshot sets of a DuckDB database and its WAL while
 cooperating writers share one external file lock. It is a small Linux library
 and CLI for applications that own their own scheduling and recovery process.
 
-![Illustrative synthetic snapshot terminal transcript](docs/assets/synthetic-snapshot-result.svg)
+[Gale Finance](https://www.gale.finance/) uses `duckdb-safe-snapshot@0.1.0` in
+its production backup infrastructure. Gale coordinates its writers on one shared
+lock; this package copies the DuckDB database and WAL, verifies the snapshot, and
+applies retention. Application scheduling and recovery procedures remain Gale's
+responsibility.
 
-The image is an illustrative static terminal transcript with synthetic values;
-it is not captured output from a snapshot run.
+![Gale Finance coordinated snapshot architecture](docs/assets/snapshot-architecture.svg)
+
+The diagram shows the production integration pattern, not a captured command or
+a private host layout. The package has generic configuration and no Gale paths,
+host IDs, or account defaults.
 
 ```bash
 python -m pip install duckdb-safe-snapshot==0.1.0
@@ -120,11 +127,9 @@ field while the writer lock is held. Release meaning and validation stay with
 the application; existing schema-1 manifests without that field remain
 verifiable.
 
-[Gale Finance](https://www.gale.finance/) uses `duckdb-safe-snapshot@0.1.0` in
-its production backup infrastructure. This project was extracted from a private
-application maintained by [Sid Kalla](https://github.com/sidko). The public
-package contains synthetic tests and generic configuration only. It is
-Apache-2.0 licensed; that license
+This project was extracted from a private application maintained by
+[Sid Kalla](https://github.com/sidko). The public package contains synthetic
+tests and generic configuration only. It is Apache-2.0 licensed; that license
 does not grant rights to Gale Finance names, logos, or visual identity. Support
 is best effort from the current release.
 

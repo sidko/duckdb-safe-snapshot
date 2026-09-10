@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="280" viewBox="0 0 960 280" role="img" aria-labelledby="title description">
+  <title id="title">Gale Finance coordinated DuckDB snapshot architecture</title>
+  <desc id="description">Gale coordinated writers and the snapshot process share one lock. The snapshot copies a DuckDB database and WAL, verifies checksums, then applies retention.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#5d7287"/></marker>
+  </defs>
+  <rect width="960" height="280" rx="18" fill="#f6f8fb"/>
+  <text x="48" y="48" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#1b2b3a">Coordinated DuckDB snapshots in Gale Finance</text>
+  <text x="48" y="76" font-family="system-ui, sans-serif" font-size="14" fill="#536779">One shared lock protects the copy; the package verifies each completed set before retention.</text>
+  <g font-family="system-ui, sans-serif">
+    <rect x="48" y="122" width="178" height="82" rx="12" fill="#e4edf6" stroke="#7391ad"/>
+    <text x="137" y="154" text-anchor="middle" font-size="16" font-weight="700" fill="#1b2b3a">Gale writers</text>
+    <text x="137" y="178" text-anchor="middle" font-size="13" fill="#536779">coordinated changes</text>
+    <rect x="280" y="137" width="128" height="52" rx="26" fill="#fff4d9" stroke="#c58b2d"/>
+    <text x="344" y="169" text-anchor="middle" font-size="15" font-weight="700" fill="#654209">shared lock</text>
+    <rect x="462" y="122" width="178" height="82" rx="12" fill="#e4edf6" stroke="#7391ad"/>
+    <text x="551" y="154" text-anchor="middle" font-size="16" font-weight="700" fill="#1b2b3a">DuckDB + WAL</text>
+    <text x="551" y="178" text-anchor="middle" font-size="13" fill="#536779">consistent copy source</text>
+    <rect x="694" y="122" width="218" height="82" rx="12" fill="#e5f3ea" stroke="#5a9b73"/>
+    <text x="803" y="151" text-anchor="middle" font-size="16" font-weight="700" fill="#1d5c38">Snapshot set</text>
+    <text x="803" y="174" text-anchor="middle" font-size="13" fill="#3f7655">copy → checksum verify → retention</text>
+  </g>
+  <path d="M226 163 H270" stroke="#5d7287" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M408 163 H452" stroke="#5d7287" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M640 163 H684" stroke="#5d7287" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M344 137 V103 H551 V112" fill="none" stroke="#c58b2d" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow)"/>
+  <text x="447" y="99" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#654209">snapshot process acquires the same lock</text>
+</svg>
