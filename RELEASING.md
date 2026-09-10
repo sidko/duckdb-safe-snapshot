@@ -5,3 +5,6 @@ workflow checks out the event SHA, validates the version, builds the package,
 and runs the clean-consumer test. PyPI retries compare normalized archive
 contents, ignore container timestamps, and skip only matching files. A GitHub
 Release follows a successful registry publish.
+
+If completion needs retrying, keep the original version tag immutable and push
+`retry/v<version>/<attempt>` from the repaired workflow commit.
