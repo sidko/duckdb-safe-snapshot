@@ -39,12 +39,22 @@ jobs:
       - if: steps.existing.outputs.state == 'publish'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with: {skip-existing: true}
+      - env:
+          DIST_DIR: dist
+          MODE: post
+          PYPI_PACKAGE: duckdb-safe-snapshot
+          PYPI_VERSION: ${{ github.ref_name }}
+        run: python tools/pypi_release_state.py
   release:
     needs: publish
     runs-on: ubuntu-24.04
     permissions: {contents: write}
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
-      - run: gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+      - run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 && exit 0
+          if [[ "$RELEASE_TAG" == *-* ]]; then gh release create "$RELEASE_TAG" --verify-tag --generate-notes --prerelease
+          else gh release create "$RELEASE_TAG" --verify-tag --generate-notes; fi

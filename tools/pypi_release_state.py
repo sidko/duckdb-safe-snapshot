@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
-"""Decide whether a trusted PyPI release needs upload without trusting archives' timestamps."""
-import hashlib, io, json, os, sys, tarfile, urllib.error, urllib.request, zipfile
+"""Verify PyPI package contents before and after trusted publication."""
+import hashlib, io, json, os, sys, tarfile, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
-
-def content_digest(raw: bytes, filename: str) -> str:
+def normalized_digest(raw, filename):
     digest = hashlib.sha256()
     if filename.endswith('.whl'):
-        archive = zipfile.ZipFile(io.BytesIO(raw)); entries = ((item.filename, item.is_dir(), archive.read(item)) for item in archive.infolist())
+        archive = zipfile.ZipFile(io.BytesIO(raw)); members = ((item.filename, item.is_dir(), archive.read(item)) for item in archive.infolist())
     else:
-        archive = tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz'); entries = ((item.name, item.isdir(), archive.extractfile(item).read() if item.isfile() else item.linkname.encode()) for item in archive.getmembers())
-    for name, directory, body in sorted(entries): digest.update(name.encode() + b'\0' + (b'd' if directory else b'f') + b'\0' + body)
+        archive = tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz'); members = ((item.name, item.isdir(), archive.extractfile(item).read() if item.isfile() else item.linkname.encode()) for item in archive.getmembers())
+    for name, directory, content in sorted(members): digest.update(name.encode()+b'\0'+(b'd' if directory else b'f')+b'\0'+content)
     return digest.hexdigest()
-dist = Path(os.environ['DIST_DIR']); package = os.environ['PYPI_PACKAGE']; version = os.environ['PYPI_VERSION'].removeprefix('v')
-local = {path.name: content_digest(path.read_bytes(), path.name) for path in dist.iterdir() if path.is_file()}
-try: payload = json.load(urllib.request.urlopen(f'https://pypi.org/pypi/{package}/{version}/json'))
-except urllib.error.HTTPError as error:
-    if error.code != 404: raise
-    remote = {}
-else: remote = {item['filename']: content_digest(urllib.request.urlopen(item['url']).read(), item['filename']) for item in payload['urls']}
-if set(remote) - set(local): sys.exit('PyPI has unexpected files for this version')
-for name in set(remote) & set(local):
-    if remote[name] != local[name]: sys.exit(f'PyPI artifact content differs: {name}')
-with open(os.environ['GITHUB_OUTPUT'], 'a') as output: output.write(f"state={'skip' if set(remote) == set(local) else 'publish'}\n")
+def remote_files(package, version):
+    try: payload = json.load(urllib.request.urlopen(f'https://pypi.org/pypi/{package}/{version}/json'))
+    except urllib.error.HTTPError as error:
+        if error.code == 404: return {}
+        raise
+    return {item['filename']: normalized_digest(urllib.request.urlopen(item['url']).read(), item['filename']) for item in payload['urls']}
+local = {path.name: normalized_digest(path.read_bytes(), path.name) for path in Path(os.environ['DIST_DIR']).iterdir() if path.is_file()}; mode = os.environ.get('MODE', 'pre')
+for attempt in range(3):
+    remote = remote_files(os.environ['PYPI_PACKAGE'], os.environ['PYPI_VERSION'].removeprefix('v'))
+    if set(remote)-set(local): sys.exit('PyPI has unexpected files for this version')
+    if any(remote[name] != local[name] for name in set(remote)&set(local)): sys.exit('PyPI artifact content differs from this build')
+    if mode == 'pre': state = 'skip' if set(remote)==set(local) else 'publish'; break
+    if set(remote)==set(local): state = 'complete'; break
+    if attempt == 2: sys.exit('PyPI upload did not become fully visible')
+    time.sleep(5)
+with open(os.environ['GITHUB_OUTPUT'], 'a') as output: output.write(f'state={state}\n')
