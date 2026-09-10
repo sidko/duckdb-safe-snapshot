@@ -12,9 +12,8 @@ responsibility.
 
 ![Gale Finance coordinated snapshot architecture](docs/assets/snapshot-architecture.svg)
 
-The diagram shows the production integration pattern, not a captured command or
-a private host layout. The package has generic configuration and no Gale paths,
-host IDs, or account defaults.
+Gale’s production integration: shared writer lock, snapshot verification, and
+retention.
 
 ```bash
 python -m pip install duckdb-safe-snapshot==0.1.0
