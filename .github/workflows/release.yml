@@ -21,4 +21,4 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade build
       - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd4bfea16e31d3c66c1b9b57d8 # v1.12.4
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
