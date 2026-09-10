@@ -21,6 +21,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip build pytest duckdb==1.5.5
       - run: python -m build
+      - run: python tools/test_pypi_release_state.py
       - run: python -m venv consumer
       - run: consumer/bin/python -m pip install dist/*.whl pytest duckdb==1.5.5
       - run: consumer/bin/python -m pytest tests
